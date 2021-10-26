@@ -105,6 +105,8 @@ class S3BucketMetadata {
   virtual std::string get_tags_as_xml();
   virtual std::string get_acl_as_xml();
   virtual std::string get_bucket_versioning_status_as_xml();
+  virtual std::string get_bucket_versioning_status();
+  virtual bool is_bucket_versioning_disabled();
 
   void acl_from_json(std::string acl_json_str);
 

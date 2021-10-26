@@ -637,6 +637,7 @@ void S3PutObjectAction::add_object_oid_to_probable_dead_oid_list() {
   assert(!new_oid_str.empty());
 
   // store old object oid
+  if (bucket_metadata->is_bucket_versioning_disabled())
   if (old_object_oid.u_hi || old_object_oid.u_lo) {
     assert(!old_oid_str.empty());
 
@@ -787,6 +788,7 @@ void S3PutObjectAction::startcleanup() {
     if (old_object_oid.u_hi || old_object_oid.u_lo) {
       // mark old OID for deletion in overwrite case, this optimizes
       // backgrounddelete decisions.
+      if (bucket_metadata->is_bucket_versioning_disabled())
       ACTION_TASK_ADD(S3PutObjectAction::mark_old_oid_for_deletion, this);
     }
     // remove new oid from probable delete list.

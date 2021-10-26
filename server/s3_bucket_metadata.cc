@@ -130,6 +130,14 @@ void S3BucketMetadata::set_bucket_versioning(
   bucket_versioning_status = bucket_version_status;
 }
 
+std::string S3BucketMetadata::get_bucket_versioning_status() {
+  return bucket_versioning_status;
+}
+
+bool S3BucketMetadata::is_bucket_versioning_disabled() {
+  if ("Unversioned" == bucket_versioning_status) return true;
+  return false;
+}
 // Streaming to json
 std::string S3BucketMetadata::to_json() {
   s3_log(S3_LOG_DEBUG, request_id, "Called\n");

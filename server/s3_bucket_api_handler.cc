@@ -24,6 +24,7 @@
 #include "s3_delete_multiple_objects_action.h"
 #include "s3_get_bucket_acl_action.h"
 #include "s3_get_bucket_action.h"
+#include "s3_get_bucket_version_action.h"
 #include "s3_get_bucket_action_v2.h"
 #include "s3_get_bucket_location_action.h"
 #include "s3_get_bucket_policy_action.h"
@@ -256,6 +257,11 @@ void S3BucketAPIHandler::create_action() {
         default:
           return;
       }
+      break;
+    case S3OperationCode::versions:
+      request->set_action_str("ListObjectVersions");
+      s3_stats_inc("get_object_versioning_count");
+      action = std::make_shared<S3GetBucketVersionAction>(request);
       break;
     case S3OperationCode::notification:
       switch (request->http_verb()) {

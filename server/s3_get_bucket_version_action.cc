@@ -21,7 +21,6 @@
 #include <string>
 
 #include "s3_error_codes.h"
-#include "s3_get_bucket_action.h"
 #include "s3_get_bucket_version_action.h"
 #include "s3_iem.h"
 #include "s3_log.h"
@@ -32,13 +31,13 @@
 
 #define MAX_RETRY_COUNT 5
 
-S3GetBucketAction::S3GetBucketAction(
+S3GetBucketVersionAction::S3GetBucketVersionAction(
     std::shared_ptr<S3RequestObject> req, std::shared_ptr<MotrAPI> motr_api,
     std::shared_ptr<S3MotrKVSReaderFactory> motr_kvs_reader_factory,
     std::shared_ptr<S3BucketMetadataFactory> bucket_meta_factory,
     std::shared_ptr<S3ObjectMetadataFactory> object_meta_factory)
     : S3BucketAction(req, bucket_meta_factory),
-      object_list(std::make_shared<S3ObjectListResponse>(
+      object_list(std::make_shared<S3ObjectVersionListResponse>(
           req->get_query_string_value("encoding-type"))),
       last_key(""),
       fetch_successful(false),
@@ -79,16 +78,16 @@ S3GetBucketAction::S3GetBucketAction(
   // TODO request param validations
 }
 
-S3GetBucketAction::~S3GetBucketAction() {}
+S3GetBucketVersionAction::~S3GetBucketVersionAction() {}
 
-void S3GetBucketAction::setup_steps() {
+void S3GetBucketVersionAction::setup_steps() {
   s3_log(S3_LOG_DEBUG, request_id, "Setting up the action\n");
-  ACTION_TASK_ADD(S3GetBucketAction::validate_request, this);
-  ACTION_TASK_ADD(S3GetBucketAction::get_next_objects, this);
-  ACTION_TASK_ADD(S3GetBucketAction::send_response_to_s3_client, this);
+  ACTION_TASK_ADD(S3GetBucketVersionAction::validate_request, this);
+  ACTION_TASK_ADD(S3GetBucketVersionAction::get_next_object_version, this);
+  ACTION_TASK_ADD(S3GetBucketVersionAction::send_response_to_s3_client, this);
   // ...
 }
-void S3GetBucketAction::fetch_bucket_info_failed() {
+void S3GetBucketVersionAction::fetch_bucket_info_failed() {
   s3_log(S3_LOG_INFO, stripped_request_id, "%s Entry\n", __func__);
   if (bucket_metadata->get_state() == S3BucketMetadataState::missing) {
     set_s3_error("NoSuchBucket");
@@ -102,7 +101,7 @@ void S3GetBucketAction::fetch_bucket_info_failed() {
   }
   send_response_to_s3_client();
 }
-void S3GetBucketAction::validate_request() {
+void S3GetBucketVersionAction::validate_request() {
   s3_log(S3_LOG_INFO, stripped_request_id, "%s Entry\n", __func__);
 
   object_list->set_bucket_name(request->get_bucket_name());
@@ -141,9 +140,9 @@ void S3GetBucketAction::validate_request() {
   after_validate_request();
 }
 
-void S3GetBucketAction::after_validate_request() { next(); }
+void S3GetBucketVersionAction::after_validate_request() { next(); }
 
-void S3GetBucketAction::get_next_objects() {
+void S3GetBucketVersionAction::get_next_object_version() {
   s3_log(S3_LOG_INFO, stripped_request_id, "%s Entry\n", __func__);
   // If client is disconnected (say, due to read timeout,
   // when the object listing takes substantial time), destroy action class
@@ -154,8 +153,11 @@ void S3GetBucketAction::get_next_objects() {
     done();
     return;
   }
-  const auto& object_list_index_layout =
-      bucket_metadata->get_object_list_index_layout();
+  // const auto& object_list_index_layout =
+  //   bucket_metadata->get_object_list_index_layout();
+
+  const auto& version_list_index_layout =
+      bucket_metadata->get_objects_version_list_index_layout();
 
   if (motr_kv_reader == nullptr) {
     motr_kv_reader = s3_motr_kvs_reader_factory->create_motr_kvs_reader(
@@ -180,7 +182,7 @@ void S3GetBucketAction::get_next_objects() {
     fetch_successful = true;
     object_list->set_key_count(key_Count);
     send_response_to_s3_client();
-  } else if (zero(object_list_index_layout.oid)) {
+  } else if (zero(version_list_index_layout.oid)) {
     fetch_successful = true;
     object_list->set_key_count(key_Count);
     send_response_to_s3_client();
@@ -193,24 +195,31 @@ void S3GetBucketAction::get_next_objects() {
       b_first_next_keyval_call = false;
       last_key = request_prefix;
       motr_kv_reader->next_keyval(
-          object_list_index_layout, last_key, max_record_count,
-          std::bind(&S3GetBucketAction::get_next_objects_successful, this),
-          std::bind(&S3GetBucketAction::get_next_objects_failed, this), 0);
+          version_list_index_layout, last_key, max_record_count,
+          std::bind(
+              &S3GetBucketVersionAction::get_next_object_version_successful,
+              this),
+          std::bind(&S3GetBucketVersionAction::get_next_object_version_failed,
+                    this),
+          0);
     } else {
       motr_kv_reader->next_keyval(
-          object_list_index_layout, last_key, max_record_count,
-          std::bind(&S3GetBucketAction::get_next_objects_successful, this),
-          std::bind(&S3GetBucketAction::get_next_objects_failed, this));
+          version_list_index_layout, last_key, max_record_count,
+          std::bind(
+              &S3GetBucketVersionAction::get_next_object_version_successful,
+              this),
+          std::bind(&S3GetBucketVersionAction::get_next_object_version_failed,
+                    this));
     }
   }
 
   // for shutdown testcases, check FI and set shutdown signal
   S3_CHECK_FI_AND_SET_SHUTDOWN_SIGNAL(
-      "get_bucket_action_get_next_objects_shutdown_fail");
+      "get_bucket_action_get_next_object_version_shutdown_fail");
   s3_log(S3_LOG_DEBUG, "", "%s Exit", __func__);
 }
 
-void S3GetBucketAction::get_next_objects_successful() {
+void S3GetBucketVersionAction::get_next_object_version_successful() {
   s3_log(S3_LOG_INFO, stripped_request_id, "%s Entry\n", __func__);
   if (check_shutdown_and_rollback()) {
     s3_log(S3_LOG_DEBUG, "", "%s Exit", __func__);
@@ -219,7 +228,7 @@ void S3GetBucketAction::get_next_objects_successful() {
   retry_count = 0;
   s3_log(S3_LOG_DEBUG, request_id, "Found Object listing\n");
   m0_uint128 object_list_index_oid =
-      bucket_metadata->get_object_list_index_layout().oid;
+      bucket_metadata->get_objects_version_list_index_layout().oid;
   bool atleast_one_json_error = false;
   bool last_key_in_common_prefix = false;
   bool skip_no_further_prefix_match = false;
@@ -558,7 +567,7 @@ void S3GetBucketAction::get_next_objects_successful() {
         }
         // Call get_next_objects to see remaining keys, if any, after skipping
         // keys belonging to common prefix.
-        get_next_objects();
+        get_next_object_version();
         return;
       } else {
         s3_log(S3_LOG_DEBUG, request_id, "000027\n");
@@ -579,11 +588,11 @@ void S3GetBucketAction::get_next_objects_successful() {
     object_list->set_key_count(key_Count);
     send_response_to_s3_client();
   } else {
-    get_next_objects();
+    get_next_object_version();
   }
 }
 
-void S3GetBucketAction::get_next_objects_failed() {
+void S3GetBucketVersionAction::get_next_object_version_failed() {
   s3_log(S3_LOG_INFO, stripped_request_id, "%s Entry\n", __func__);
   if (motr_kv_reader->get_state() == S3MotrKVSReaderOpState::missing) {
     s3_log(S3_LOG_DEBUG, request_id, "No Objects found in Object listing\n");
@@ -611,7 +620,7 @@ void S3GetBucketAction::get_next_objects_failed() {
       retry_count++;
       s3_log(S3_LOG_INFO, request_id, "Retry next key val, retry count = %d\n",
              retry_count);
-      get_next_objects();
+      get_next_object_version();
       s3_log(S3_LOG_DEBUG, "", "%s Exit", __func__);
       return;
     }
@@ -624,7 +633,7 @@ void S3GetBucketAction::get_next_objects_failed() {
   s3_log(S3_LOG_DEBUG, "", "%s Exit", __func__);
 }
 
-void S3GetBucketAction::send_response_to_s3_client() {
+void S3GetBucketVersionAction::send_response_to_s3_client() {
   s3_log(S3_LOG_INFO, stripped_request_id, "%s Entry\n", __func__);
 
   if (reject_if_shutting_down() ||

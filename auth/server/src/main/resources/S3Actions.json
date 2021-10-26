@@ -24,6 +24,18 @@
             "s3:signatureversion",
             "s3:x-amz-content-sha256"
         ],
+        "s3:ListObjectVersions": [
+            "s3:DataAccessPointAccount",
+            "s3:DataAccessPointArn",
+            "s3:AccessPointNetworkOrigin",
+            "s3:authtype",
+            "s3:delimiter",
+            "s3:max-keys",
+            "s3:prefix",
+            "s3:signatureage",
+            "s3:signatureversion",
+            "s3:x-amz-content-sha256"
+        ],
         "s3:ListBucketMultipartUploads": [
             "s3:DataAccessPointAccount",
             "s3:DataAccessPointArn",

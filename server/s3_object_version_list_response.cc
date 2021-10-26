@@ -1,0 +1,416 @@
+/*
+ * Copyright (c) 2020 Seagate Technology LLC and/or its Affiliates
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * For any questions about this software or licensing,
+ * please email opensource@seagate.com or cortx-questions@seagate.com.
+ *
+ */
+#include <sstream>
+
+#include <evhttp.h>
+#include "s3_object_version_list_response.h"
+#include "s3_common_utilities.h"
+#include "s3_log.h"
+
+S3ObjectVersionListResponse::S3ObjectVersionListResponse(
+    const std::string& encoding_type)
+    : encoding_type(encoding_type),
+      request_prefix(""),
+      request_delimiter(""),
+      request_marker_key(""),
+      request_marker_uploadid(""),
+      max_keys(""),
+      response_is_truncated(false),
+      next_marker_key(""),
+      max_uploads(""),
+      next_marker_uploadid(""),
+      key_count(""),
+      response_xml("") {
+  s3_log(S3_LOG_DEBUG, "", "%s Ctor\n", __func__);
+  object_list.clear();
+  part_list.clear();
+}
+
+void S3ObjectVersionListResponse::set_bucket_name(const std::string& name) {
+  bucket_name = name;
+}
+
+// Encoding type used by S3 to encode object key names in the XML response.
+// If you specify encoding-type request parameter, S3 includes this element in
+// the response, and returns encoded key name values in the following response
+// elements:
+// Delimiter, KeyMarker, Prefix, NextKeyMarker, Key.
+std::string S3ObjectVersionListResponse::get_response_format_key_value(
+    const std::string& key_value) {
+  std::string format_key_value;
+  if (encoding_type == "url") {
+    char* decoded_str = evhttp_uriencode(key_value.c_str(), -1, 0);
+    format_key_value = decoded_str;
+    free(decoded_str);
+  } else {
+    format_key_value = key_value;
+  }
+  return format_key_value;
+}
+
+void S3ObjectVersionListResponse::set_object_name(const std::string& name) {
+  object_name = get_response_format_key_value(name);
+}
+
+void S3ObjectVersionListResponse::set_request_prefix(
+    const std::string& prefix) {
+  request_prefix = prefix;
+}
+
+void S3ObjectVersionListResponse::set_request_delimiter(
+    const std::string& delimiter) {
+  request_delimiter = delimiter;
+}
+
+void S3ObjectVersionListResponse::set_request_marker_key(
+    const std::string& marker) {
+  request_marker_key = get_response_format_key_value(marker);
+}
+
+void S3ObjectVersionListResponse::set_request_marker_uploadid(
+    const std::string& marker) {
+  request_marker_uploadid = marker;
+}
+
+void S3ObjectVersionListResponse::set_max_keys(const std::string& count) {
+  max_keys = count;
+}
+
+void S3ObjectVersionListResponse::set_key_count(size_t& keys) {
+  std::stringstream ss;
+  ss << keys;
+  key_count = ss.str();
+}
+
+void S3ObjectVersionListResponse::set_max_uploads(
+    const std::string& upload_count) {
+  max_uploads = upload_count;
+}
+
+void S3ObjectVersionListResponse::set_max_parts(const std::string& part_count) {
+  max_parts = part_count;
+}
+
+void S3ObjectVersionListResponse::set_response_is_truncated(bool flag) {
+  response_is_truncated = flag;
+}
+
+void S3ObjectVersionListResponse::set_next_marker_key(const std::string& next,
+                                                      bool url_encode) {
+  if (url_encode) {
+    next_marker_key = get_response_format_key_value(next);
+  } else {
+    next_marker_key = next;
+  }
+}
+
+void S3ObjectVersionListResponse::set_next_marker_uploadid(
+    const std::string& next) {
+  next_marker_uploadid = next;
+}
+
+std::string& S3ObjectVersionListResponse::get_object_name() {
+  return object_name;
+}
+
+void S3ObjectVersionListResponse::add_object(
+    std::shared_ptr<S3ObjectMetadata> object) {
+  object_list.push_back(object);
+}
+
+unsigned int S3ObjectVersionListResponse::size() { return object_list.size(); }
+
+unsigned int S3ObjectVersionListResponse::common_prefixes_size() {
+  return common_prefixes.size();
+}
+
+void S3ObjectVersionListResponse::add_part(
+    std::shared_ptr<S3PartMetadata> part) {
+  part_list[strtoul(part->get_part_number().c_str(), NULL, 0)] = part;
+}
+
+void S3ObjectVersionListResponse::add_common_prefix(
+    const std::string& common_prefix) {
+  common_prefixes.insert(common_prefix);
+}
+
+bool S3ObjectVersionListResponse::is_prefix_in_common_prefix(
+    const std::string& check_prefix) {
+  return (common_prefixes.find(check_prefix) != common_prefixes.end());
+}
+
+void S3ObjectVersionListResponse::set_user_id(const std::string& userid) {
+  user_id = userid;
+}
+
+void S3ObjectVersionListResponse::set_user_name(const std::string& username) {
+  user_name = username;
+}
+
+void S3ObjectVersionListResponse::set_canonical_id(
+    const std::string& canonicalid) {
+  canonical_id = canonicalid;
+}
+
+void S3ObjectVersionListResponse::set_account_id(const std::string& accountid) {
+  account_id = accountid;
+}
+
+void S3ObjectVersionListResponse::set_account_name(
+    const std::string& accountname) {
+  account_name = accountname;
+}
+
+std::string& S3ObjectVersionListResponse::get_account_id() {
+  return account_id;
+}
+
+std::string& S3ObjectVersionListResponse::get_account_name() {
+  return account_name;
+}
+
+void S3ObjectVersionListResponse::set_storage_class(
+    const std::string& stor_class) {
+  storage_class = stor_class;
+}
+
+std::string& S3ObjectVersionListResponse::get_user_id() { return user_id; }
+
+std::string& S3ObjectVersionListResponse::get_user_name() { return user_name; }
+
+std::string& S3ObjectVersionListResponse::get_canonical_id() {
+  return canonical_id;
+}
+
+std::string& S3ObjectVersionListResponse::get_storage_class() {
+  return storage_class;
+}
+
+void S3ObjectVersionListResponse::set_upload_id(const std::string& uploadid) {
+  upload_id = uploadid;
+}
+
+std::string& S3ObjectVersionListResponse::get_upload_id() { return upload_id; }
+
+std::string S3ObjectVersionListResponse::get_next_marker_key() {
+  std::string raw_value;
+  if (encoding_type == "url") {
+    char* decoded_str = evhttp_uridecode(next_marker_key.c_str(), 0, NULL);
+    raw_value = decoded_str;
+    free(decoded_str);
+  } else {
+    raw_value = next_marker_key;
+  }
+  return raw_value;
+}
+
+std::string& S3ObjectVersionListResponse::get_xml(
+    const std::string requestor_canonical_id,
+    const std::string bucket_owner_user_id,
+    const std::string requestor_user_id) {
+  // clang-format off
+  response_xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
+  response_xml +=
+      "<ListVersionsResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">";
+  response_xml += S3CommonUtilities::format_xml_string("Name", bucket_name);
+  response_xml +=
+      S3CommonUtilities::format_xml_string("Prefix", request_prefix);
+  // When 'Delimiter' is specified in the request, the response should have
+  // 'Delimiter'
+  if (!this->get_request_delimiter().empty()) {
+    response_xml +=
+        S3CommonUtilities::format_xml_string("Delimiter", request_delimiter);
+  }
+  if (encoding_type == "url") {
+    response_xml += S3CommonUtilities::format_xml_string("EncodingType", "url");
+  }
+  response_xml +=
+      S3CommonUtilities::format_xml_string("KeyMarker", request_marker_key);
+  response_xml += S3CommonUtilities::format_xml_string("VersionIdMarker",
+                                                       request_marker_key);
+
+  response_xml += S3CommonUtilities::format_xml_string("MaxKeys", max_keys);
+  // When is_truncated is true, the response should have "NextMarker".
+  // Refer AWS S3 ListObjects documentation for NextMarker.
+  if (this->response_is_truncated) {
+    response_xml +=
+        S3CommonUtilities::format_xml_string("NextKeyMarker", next_marker_key);
+  }
+  response_xml += S3CommonUtilities::format_xml_string("NextVersionIdMarker",
+                                                       request_marker_key);
+  response_xml += S3CommonUtilities::format_xml_string(
+      "IsTruncated", (response_is_truncated ? "true" : "false"));
+
+  for (auto&& object : object_list) {
+    response_xml += "<Contents>";
+    response_xml += S3CommonUtilities::format_xml_string(
+        "Key", get_response_format_key_value(object->get_object_name()));
+    response_xml += S3CommonUtilities::format_xml_string(
+        "LastModified", object->get_last_modified_iso());
+    response_xml +=
+        S3CommonUtilities::format_xml_string("ETag", object->get_md5(), true);
+    response_xml += S3CommonUtilities::format_xml_string(
+        "Size", object->get_content_length_str());
+    response_xml += S3CommonUtilities::format_xml_string(
+        "StorageClass", object->get_storage_class());
+    if (requestor_canonical_id == object->get_canonical_id() ||
+        bucket_owner_user_id == requestor_user_id) {
+      response_xml += "<Owner>";
+      response_xml += S3CommonUtilities::format_xml_string(
+          "ID", object->get_canonical_id());
+      response_xml += S3CommonUtilities::format_xml_string(
+          "DisplayName", object->get_account_name());
+      response_xml += "</Owner>";
+    }
+    response_xml += "</Contents>";
+  }
+
+  for (auto&& prefix : common_prefixes) {
+    response_xml += "<CommonPrefixes>";
+    std::string prefix_no_delimiter = prefix;
+    // Remove the delimiter from the end
+    prefix_no_delimiter.pop_back();
+    std::string uri_encode_prefix =
+        get_response_format_key_value(prefix_no_delimiter);
+    // Add the delimiter at the end
+    uri_encode_prefix += request_delimiter;
+    response_xml +=
+        S3CommonUtilities::format_xml_string("Prefix", uri_encode_prefix);
+    response_xml += "</CommonPrefixes>";
+  }
+
+  response_xml += "</ListVersionsResult>";
+  // clang-format on
+  return response_xml;
+}
+
+std::string& S3ObjectVersionListResponse::get_multiupload_xml() {
+  // clang-format off
+  response_xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
+  response_xml +=
+      "<ListMultipartUploadsResult "
+      "xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">";
+  response_xml += S3CommonUtilities::format_xml_string("Bucket", bucket_name);
+  response_xml +=
+      S3CommonUtilities::format_xml_string("KeyMarker", request_marker_key);
+  response_xml += S3CommonUtilities::format_xml_string("UploadIdMarker",
+                                                       request_marker_uploadid);
+  response_xml +=
+      S3CommonUtilities::format_xml_string("NextKeyMarker", next_marker_key);
+  response_xml += S3CommonUtilities::format_xml_string("NextUploadIdMarker",
+                                                       next_marker_uploadid);
+  response_xml +=
+      S3CommonUtilities::format_xml_string("MaxUploads", max_uploads);
+  response_xml += S3CommonUtilities::format_xml_string(
+      "IsTruncated", (response_is_truncated ? "true" : "false"));
+
+  if (encoding_type == "url") {
+    response_xml += S3CommonUtilities::format_xml_string("EncodingType", "url");
+  }
+
+  for (auto&& object : object_list) {
+    response_xml += "<Upload>";
+    response_xml += S3CommonUtilities::format_xml_string(
+        "Key", get_response_format_key_value(object->get_object_name()));
+    response_xml += S3CommonUtilities::format_xml_string(
+        "UploadId", object->get_upload_id());
+    response_xml += "<Initiator>";
+    response_xml +=
+        S3CommonUtilities::format_xml_string("ID", object->get_user_id());
+    response_xml += S3CommonUtilities::format_xml_string(
+        "DisplayName", object->get_user_name());
+    response_xml += "</Initiator>";
+    response_xml += "<Owner>";
+    response_xml +=
+        S3CommonUtilities::format_xml_string("ID", object->get_user_id());
+    response_xml += S3CommonUtilities::format_xml_string(
+        "DisplayName", object->get_user_name());
+    response_xml += "</Owner>";
+    response_xml += S3CommonUtilities::format_xml_string("StorageClass",
+                                                         get_storage_class());
+    response_xml += S3CommonUtilities::format_xml_string(
+        "Initiated", object->get_last_modified_iso());
+    response_xml += "</Upload>";
+  }
+
+  for (auto&& prefix : common_prefixes) {
+    response_xml += "<CommonPrefixes>";
+    response_xml += S3CommonUtilities::format_xml_string("Prefix", prefix);
+    response_xml += "</CommonPrefixes>";
+  }
+
+  response_xml += "</ListMultipartUploadsResult>";
+  // clang-format on
+  return response_xml;
+}
+
+std::string& S3ObjectVersionListResponse::get_multipart_xml() {
+  // clang-format off
+  response_xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
+  response_xml +=
+      "<ListPartsResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">";
+  response_xml += S3CommonUtilities::format_xml_string("Bucket", bucket_name);
+  response_xml += S3CommonUtilities::format_xml_string(
+      "Key", get_response_format_key_value(get_object_name()));
+  response_xml +=
+      S3CommonUtilities::format_xml_string("UploadID", get_upload_id());
+  response_xml += "<Initiator>";
+  response_xml += S3CommonUtilities::format_xml_string("ID", get_user_id());
+  response_xml +=
+      S3CommonUtilities::format_xml_string("DisplayName", get_user_name());
+  response_xml += "</Initiator>";
+  response_xml += "<Owner>";
+  response_xml += S3CommonUtilities::format_xml_string("ID", get_account_id());
+  response_xml +=
+      S3CommonUtilities::format_xml_string("DisplayName", get_account_name());
+  response_xml += "</Owner>";
+  response_xml +=
+      S3CommonUtilities::format_xml_string("StorageClass", get_storage_class());
+  response_xml += S3CommonUtilities::format_xml_string("PartNumberMarker",
+                                                       request_marker_key);
+  response_xml += S3CommonUtilities::format_xml_string(
+      "NextPartNumberMarker",
+      (next_marker_key.empty() ? "0" : next_marker_key));
+  response_xml += S3CommonUtilities::format_xml_string("MaxParts", max_parts);
+  response_xml += S3CommonUtilities::format_xml_string(
+      "IsTruncated", (response_is_truncated ? "true" : "false"));
+
+  if (encoding_type == "url") {
+    response_xml += S3CommonUtilities::format_xml_string("EncodingType", "url");
+  }
+
+  for (auto&& part : part_list) {
+    response_xml += "<Part>";
+    response_xml += S3CommonUtilities::format_xml_string(
+        "PartNumber", part.second->get_part_number());
+    response_xml += S3CommonUtilities::format_xml_string(
+        "LastModified", part.second->get_last_modified_iso());
+    response_xml += S3CommonUtilities::format_xml_string(
+        "ETag", part.second->get_md5(), true);
+    response_xml += S3CommonUtilities::format_xml_string(
+        "Size", part.second->get_content_length_str());
+    response_xml += "</Part>";
+  }
+
+  response_xml += "</ListPartsResult>";
+  // clang-format on
+
+  return response_xml;
+}
