@@ -259,11 +259,14 @@ std::string& S3ObjectVersionListResponse::get_xml(
       "IsTruncated", (response_is_truncated ? "true" : "false"));
 
   for (auto&& object : object_list) {
-    response_xml += "<Contents>";
+    response_xml += "<Version>";
     response_xml += S3CommonUtilities::format_xml_string(
         "Key", get_response_format_key_value(object->get_object_name()));
     response_xml += S3CommonUtilities::format_xml_string(
         "LastModified", object->get_last_modified_iso());
+
+    response_xml += S3CommonUtilities::format_xml_string(
+        "VersionId", object->get_object_version_id());
     response_xml +=
         S3CommonUtilities::format_xml_string("ETag", object->get_md5(), true);
     response_xml += S3CommonUtilities::format_xml_string(
@@ -279,7 +282,7 @@ std::string& S3ObjectVersionListResponse::get_xml(
           "DisplayName", object->get_account_name());
       response_xml += "</Owner>";
     }
-    response_xml += "</Contents>";
+    response_xml += "</Version>";
   }
 
   for (auto&& prefix : common_prefixes) {

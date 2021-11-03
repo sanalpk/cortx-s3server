@@ -250,6 +250,9 @@ void S3ObjectMetadata::regenerate_version_id() {
   system_defined_attribute["x-amz-version-id"] = object_version_id;
 }
 
+std::string S3ObjectMetadata::get_object_version_id() {
+  return object_version_id;
+}
 std::string S3ObjectMetadata::get_version_key_in_index() {
   assert(!object_name.empty());
   assert(!rev_epoch_version_id_key.empty());
@@ -522,7 +525,8 @@ void S3ObjectMetadata::save_version_metadata() {
       mote_kv_writer_factory->create_motr_kvs_writer(request, s3_motr_api);
   motr_kv_writer->put_keyval(
       objects_version_list_index_layout, get_version_key_in_index(),
-      this->version_entry_to_json(),
+      // this->version_entry_to_json(),
+      this->to_json(),
       std::bind(&S3ObjectMetadata::save_version_metadata_successful, this),
       std::bind(&S3ObjectMetadata::save_version_metadata_failed, this));
   s3_log(S3_LOG_DEBUG, "", "%s Exit", __func__);
