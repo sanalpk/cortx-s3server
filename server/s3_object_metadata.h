@@ -82,6 +82,7 @@ class S3ObjectMetadata : private S3ObjectMetadataCopyable {
   std::string user_id;
   std::string bucket_name;
   std::string object_name;
+  std::string bucket_versioning_status{"Unversioned"};
 
   // Used in validation
   std::string requested_bucket_name;
@@ -92,6 +93,8 @@ class S3ObjectMetadata : private S3ObjectMetadataCopyable {
   // holds base64 encoding value of rev_epoch_version_id_key, this is used
   // in S3 REST APIs as http header x-amz-version-id or query param "VersionId"
   std::string object_version_id;
+  std::string version_key_null_in_index;
+  bool has_null_version_id = false;
   std::string upload_id;
   // Maximum retry count for collision resolution.
   unsigned short tried_count = 0;
@@ -190,12 +193,14 @@ class S3ObjectMetadata : private S3ObjectMetadataCopyable {
   virtual std::string get_content_length_str();
   virtual void set_content_type(std::string content_type);
   virtual std::string get_content_type();
-
+  virtual void set_bucket_versioning_status(
+      const std::string& versioning_status);
   virtual void set_md5(std::string md5);
   virtual void set_part_one_size(const size_t& part_size);
   virtual std::string get_md5();
 
   virtual void set_oid(struct m0_uint128 id);
+  // virtual m0_uint128 get_oid();
   void set_old_oid(struct m0_uint128 id);
   void acl_from_json(std::string acl_json_str);
   void set_part_index_layout(const struct s3_motr_idx_layout&);
@@ -236,6 +241,8 @@ class S3ObjectMetadata : private S3ObjectMetadataCopyable {
   virtual void reset_date_time_to_current();
   virtual std::string get_storage_class();
   virtual std::string get_upload_id();
+  virtual void set_version_key_null_in_index(const std::string&);
+  virtual std::string get_version_key_null_in_index();
   std::string get_object_version_id();
   std::string& get_encoded_object_acl();
   std::string get_acl_as_xml();
@@ -258,6 +265,9 @@ class S3ObjectMetadata : private S3ObjectMetadataCopyable {
   // Load object metadata from object list index
   virtual void load(std::function<void(void)> on_success,
                     std::function<void(void)> on_failed);
+  // Load object metadata from object list index
+  virtual void load_null_version(std::function<void(void)> on_success,
+                                 std::function<void(void)> on_failed);
 
   // Save object metadata to versions list index & object list index
   virtual void save(std::function<void(void)> on_success,
@@ -282,6 +292,7 @@ class S3ObjectMetadata : private S3ObjectMetadataCopyable {
   std::string to_json();
   // For storing minimal version entry in version listing
   std::string version_entry_to_json();
+  std::string version_entry_to_json_new();
 
   // returns 0 on success, -1 on parsing error.
   virtual int from_json(std::string content);

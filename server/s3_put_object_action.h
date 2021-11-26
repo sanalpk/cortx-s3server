@@ -39,6 +39,7 @@
 class S3PutObjectAction : public S3ObjectAction {
   S3PutObjectActionState s3_put_action_state;
   struct m0_uint128 old_object_oid;
+  struct m0_uint128 null_object_oid;
   int old_layout_id;
   struct m0_uint128 new_object_oid;
   // Maximum retry count for collision resolution
@@ -59,6 +60,7 @@ class S3PutObjectAction : public S3ObjectAction {
   std::shared_ptr<S3MotrKVSWriterFactory> mote_kv_writer_factory;
   std::shared_ptr<MotrAPI> s3_motr_api;
   std::shared_ptr<S3ObjectMetadata> new_object_metadata;
+  std::shared_ptr<S3ObjectMetadata> null_versioned_object_metadata;
   std::map<std::string, std::string> new_object_tags_map;
 
   // Probable delete record for old object OID in case of overwrite
@@ -67,6 +69,8 @@ class S3PutObjectAction : public S3ObjectAction {
   // Probable delete record for new object OID in case of current req failure
   std::string new_oid_str;  // Key for new probable delete rec
   std::unique_ptr<S3ProbableDeleteRecord> new_probable_del_rec;
+  std::string null_ver_index;
+  bool has_null_ver_index = false;
 
   void create_new_oid(struct m0_uint128 current_oid);
   void collision_detected();
@@ -123,6 +127,11 @@ class S3PutObjectAction : public S3ObjectAction {
   void delete_old_object();
   void remove_old_object_version_metadata();
   void delete_new_object();
+  void fetch_and_delete_null_versioned_object();
+  void fetch_and_delete_null_versioned_object_success();
+  void fetch_and_delete_null_versioned_object_failed();
+  void remove_null_versioned_object_metadata();
+  void remove_null_oid_probable_record();
 
   FRIEND_TEST(S3PutObjectActionTest, ConstructorTest);
   FRIEND_TEST(S3PutObjectActionTest, ValidateRequestTags);

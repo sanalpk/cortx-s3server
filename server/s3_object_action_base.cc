@@ -105,6 +105,8 @@ void S3ObjectAction::fetch_object_info() {
 }
 
 void S3ObjectAction::fetch_object_info_success() {
+  object_metadata->set_bucket_versioning_status(
+      bucket_metadata->get_bucket_versioning_status());
   request->set_object_size(object_metadata->get_content_length());
   next();
 }

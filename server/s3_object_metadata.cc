@@ -104,6 +104,10 @@ static void str_set_default(std::string& sref, const char* sz) {
   }
 }
 
+void S3ObjectMetadata::set_bucket_versioning_status(
+    const std::string& versioning_status) {
+  bucket_versioning_status = versioning_status;
+}
 void S3ObjectMetadata::initialize(bool ismultipart,
                                   const std::string& uploadid) {
   is_multipart = ismultipart;
@@ -250,6 +254,15 @@ void S3ObjectMetadata::regenerate_version_id() {
   system_defined_attribute["x-amz-version-id"] = object_version_id;
 }
 
+void S3ObjectMetadata::set_version_key_null_in_index(
+    const std::string& ver_key_null_index) {
+  version_key_null_in_index = ver_key_null_index;
+  has_null_version_id = true;
+}
+
+std::string S3ObjectMetadata::get_version_key_null_in_index() {
+  return version_key_null_in_index;
+}
 std::string S3ObjectMetadata::get_object_version_id() {
   return object_version_id;
 }
@@ -378,6 +391,31 @@ void S3ObjectMetadata::add_user_defined_attribute(std::string key,
 
 void S3ObjectMetadata::validate() {
   // TODO
+}
+
+void S3ObjectMetadata::load_null_version(std::function<void(void)> on_success,
+                                         std::function<void(void)> on_failed) {
+  s3_log(S3_LOG_DEBUG, request_id, "%s Entry\n", __func__);
+  // version_list_index_layout and version_key_null_in_index
+  // should be set before using this method
+  assert(non_zero(objects_version_list_index_layout.oid));
+
+  s3_timer.start();
+
+  this->handler_on_success = on_success;
+  this->handler_on_failed = on_failed;
+
+  state = S3ObjectMetadataState::empty;
+
+  motr_kv_reader =
+      motr_kv_reader_factory->create_motr_kvs_reader(request, s3_motr_api);
+  requested_bucket_name = bucket_name;
+  requested_object_name = object_name;
+  motr_kv_reader->get_keyval(
+      objects_version_list_index_layout, version_key_null_in_index,
+      std::bind(&S3ObjectMetadata::load_successful, this),
+      std::bind(&S3ObjectMetadata::load_failed, this));
+  s3_log(S3_LOG_DEBUG, "", "%s Exit", __func__);
 }
 
 void S3ObjectMetadata::load(std::function<void(void)> on_success,
@@ -517,16 +555,18 @@ void S3ObjectMetadata::save(std::function<void(void)> on_success,
 
 // Save to objects version list index
 void S3ObjectMetadata::save_version_metadata() {
-  s3_log(S3_LOG_DEBUG, request_id, "%s Entry\n", __func__);
+  s3_log(S3_LOG_INFO, request_id, "%s Entry\n", __func__);
   // objects_version_list_index_layout should be set before using this method
   assert(non_zero(objects_version_list_index_layout.oid));
 
   motr_kv_writer =
       mote_kv_writer_factory->create_motr_kvs_writer(request, s3_motr_api);
+  s3_log(S3_LOG_INFO, request_id, "bucket_versioning_status:%s\n",
+         bucket_versioning_status.c_str());
   motr_kv_writer->put_keyval(
       objects_version_list_index_layout, get_version_key_in_index(),
-      // this->version_entry_to_json(),
-      this->to_json(),
+      this->version_entry_to_json_new(),
+      // this->to_json(),
       std::bind(&S3ObjectMetadata::save_version_metadata_successful, this),
       std::bind(&S3ObjectMetadata::save_version_metadata_failed, this));
   s3_log(S3_LOG_DEBUG, "", "%s Exit", __func__);
@@ -723,6 +763,9 @@ std::string S3ObjectMetadata::to_json() {
   } else {
     root["ACL"] = encoded_acl;
   }
+  if (true == has_null_version_id) {
+    root["version_key_null_in_index"] = version_key_null_in_index;
+  }
 
   S3DateTime current_time;
   current_time.init_current_time();
@@ -733,11 +776,67 @@ std::string S3ObjectMetadata::to_json() {
     root["System-Defined"]["Content-MD5"] = "d41d8cd98f00b204e9800998ecf8427e";
   }
 
+  if ("Enabled" != bucket_versioning_status)
+    root["System-Defined"]["x-amz-version-id"] = "null";
+
   Json::FastWriter fastWriter;
   return fastWriter.write(root);
   ;
 }
 
+std::string S3ObjectMetadata::version_entry_to_json_new() {
+  s3_log(S3_LOG_DEBUG, request_id, "Called\n");
+  Json::Value root;
+  root["Bucket-Name"] = bucket_name;
+  if (s3_di_fi_is_enabled("di_metadata_bcktname_on_write_corrupted")) {
+    root["Bucket-Name"] = "@" + bucket_name + "@";
+  }
+  root["Object-Name"] = object_name;
+  if (s3_di_fi_is_enabled("di_metadata_objname_on_write_corrupted")) {
+    root["Object-Name"] = "@" + object_name + "@";
+  }
+  root["Object-URI"] = object_key_uri;
+  root["layout_id"] = layout_id;
+
+  if (is_multipart) {
+    root["Upload-ID"] = upload_id;
+    root["motr_part_layout"] = motr_part_layout_str;
+    root["motr_old_oid"] = motr_old_oid_str;
+    root["old_layout_id"] = old_layout_id;
+    root["motr_old_object_version_id"] = motr_old_object_version_id;
+  }
+
+  root["motr_oid"] = motr_oid_str;
+  root["PVID"] = this->pvid_str;
+
+  for (auto sit : system_defined_attribute) {
+    root["System-Defined"][sit.first] = sit.second;
+  }
+  for (auto uit : user_defined_attribute) {
+    root["User-Defined"][uit.first] = uit.second;
+  }
+  for (const auto& tag : object_tags) {
+    root["User-Defined-Tags"][tag.first] = tag.second;
+  }
+  if (encoded_acl == "") {
+
+    root["ACL"] = request->get_default_acl();
+
+  } else {
+    root["ACL"] = encoded_acl;
+  }
+
+  S3DateTime current_time;
+  current_time.init_current_time();
+  root["create_timestamp"] = current_time.get_isoformat_string();
+
+  if (s3_di_fi_is_enabled("di_obj_md5_corrupted")) {
+    root["System-Defined"]["Content-MD5"] = "d41d8cd98f00b204e9800998ecf8427e";
+  }
+
+  Json::FastWriter fastWriter;
+  return fastWriter.write(root);
+}
 // Streaming to json
 std::string S3ObjectMetadata::version_entry_to_json() {
   s3_log(S3_LOG_DEBUG, request_id, "Called\n");
@@ -848,6 +947,7 @@ int S3ObjectMetadata::from_json(std::string content) {
   for (const auto& tag : members) {
     object_tags[tag] = newroot["User-Defined-Tags"][tag].asString();
   }
+  version_key_null_in_index = newroot["version_key_null_in_index"].asString();
   acl_from_json(newroot["ACL"].asString());
 
   return 0;

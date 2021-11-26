@@ -308,6 +308,13 @@ void S3PutObjectAction::create_object_successful() {
   new_object_metadata->set_oid(motr_writer->get_oid());
   new_object_metadata->set_layout_id(layout_id);
   new_object_metadata->set_pvid(motr_writer->get_ppvid());
+  if ("Enabled" == bucket_metadata->get_bucket_versioning_status()) {
+    null_ver_index = object_metadata->get_version_key_null_in_index();
+    if (!null_ver_index.empty()) {
+      new_object_metadata->set_version_key_null_in_index(null_ver_index);
+      has_null_ver_index = true;
+    }
+  }
 
   add_object_oid_to_probable_dead_oid_list();
   s3_log(S3_LOG_DEBUG, "", "%s Exit", __func__);
@@ -637,7 +644,7 @@ void S3PutObjectAction::add_object_oid_to_probable_dead_oid_list() {
   assert(!new_oid_str.empty());
 
   // store old object oid
-  if (bucket_metadata->is_bucket_versioning_disabled())
+  if (bucket_metadata->is_bucket_versioning_disabled()) {
   if (old_object_oid.u_hi || old_object_oid.u_lo) {
     assert(!old_oid_str.empty());
 
@@ -660,7 +667,7 @@ void S3PutObjectAction::add_object_oid_to_probable_dead_oid_list() {
 
     probable_oid_list[old_oid_rec_key] = old_probable_del_rec->to_json();
   }
-
+  }
   // prepending a char depending on the size of the object (size based bucketing
   // of object)
   S3CommonUtilities::size_based_bucketing_of_objects(
@@ -781,6 +788,8 @@ void S3PutObjectAction::startcleanup() {
   // Clear task list and setup cleanup task list
   clear_tasks();
   cleanup_started = true;
+  std::string versioning_status =
+      bucket_metadata->get_bucket_versioning_status();
 
   // Success conditions
   if (s3_put_action_state == S3PutObjectActionState::completed) {
@@ -788,8 +797,20 @@ void S3PutObjectAction::startcleanup() {
     if (old_object_oid.u_hi || old_object_oid.u_lo) {
       // mark old OID for deletion in overwrite case, this optimizes
       // backgrounddelete decisions.
-      if (bucket_metadata->is_bucket_versioning_disabled())
-      ACTION_TASK_ADD(S3PutObjectAction::mark_old_oid_for_deletion, this);
+      if ("Unversioned" == versioning_status) {
+        ACTION_TASK_ADD(S3PutObjectAction::mark_old_oid_for_deletion, this);
+      } else if ("Suspended" == versioning_status) {
+        // add it for deletion if it has null version id
+        if ("null" == object_metadata->get_obj_version_id()) {
+          s3_log(S3_LOG_DEBUG, request_id, "Old object has null version id\n");
+          ACTION_TASK_ADD(S3PutObjectAction::mark_old_oid_for_deletion, this);
+        } else if (has_null_ver_index) {
+          s3_log(S3_LOG_DEBUG, request_id,
+                 "Old object has has_null_ver_index\n");
+          // delete object with null version id
+          fetch_and_delete_null_versioned_object();
+        }
+      }
     }
     // remove new oid from probable delete list.
     ACTION_TASK_ADD(S3PutObjectAction::remove_new_oid_probable_record, this);
@@ -863,7 +884,7 @@ void S3PutObjectAction::mark_old_oid_for_deletion() {
       old_oid_str + '-' + prepended_new_oid_str.erase(0, 1);
 
   // update old oid, force_del = true
-  old_probable_del_rec->set_force_delete(true);
+  if (old_probable_del_rec) old_probable_del_rec->set_force_delete(true);
 
   if (!motr_kv_writer) {
     motr_kv_writer =
@@ -969,4 +990,101 @@ void S3PutObjectAction::set_authorization_meta() {
   }
   next();
   s3_log(S3_LOG_DEBUG, "", "%s Exit", __func__);
+}
+
+void S3PutObjectAction::fetch_and_delete_null_versioned_object() {
+  s3_log(S3_LOG_DEBUG, request_id, "%s Entry\n", __func__);
+
+  obj_list_idx_lo = bucket_metadata->get_object_list_index_layout();
+  obj_version_list_idx_lo =
+      bucket_metadata->get_objects_version_list_index_layout();
+
+  if (request->http_verb() == S3HttpVerb::GET) {
+    S3OperationCode operation_code = request->get_operation_code();
+    if ((operation_code == S3OperationCode::tagging) ||
+        (operation_code == S3OperationCode::acl)) {
+      /* bypass shutdown signal check for next task */
+      check_shutdown_signal_for_next_task(false);
+    }
+  }
+  if (zero(obj_list_idx_lo.oid) || zero(obj_version_list_idx_lo.oid)) {
+    /* Object list index and version list index missing.*/
+    fetch_and_delete_null_versioned_object_failed();
+  } else {
+    null_versioned_object_metadata =
+        object_metadata_factory->create_object_metadata_obj(
+            request, obj_list_idx_lo, obj_version_list_idx_lo);
+
+    null_versioned_object_metadata->load(
+        std::bind(
+            &S3PutObjectAction::fetch_and_delete_null_versioned_object_success,
+            this),
+        std::bind(
+            &S3PutObjectAction::fetch_and_delete_null_versioned_object_failed,
+            this));
+  }
+  s3_log(S3_LOG_DEBUG, "", "%s Exit", __func__);
+}
+
+void S3PutObjectAction::fetch_and_delete_null_versioned_object_success() {
+  // call delete object here
+  null_object_oid = null_versioned_object_metadata->get_oid();
+  assert(null_object_oid.u_hi != 0ULL || null_object_oid.u_lo != 0ULL);
+
+  if ((null_object_oid.u_hi || null_object_oid.u_lo) &&
+      S3Option::get_instance()->is_s3server_obj_delayed_del_enabled()) {
+    s3_log(
+        S3_LOG_INFO, request_id,
+        "Skipping deletion of old object. The null object will be deleted by "
+        "BD.\n");
+    next();
+    return;
+  }
+  motr_writer->delete_object(
+      std::bind(&S3PutObjectAction::remove_null_versioned_object_metadata,
+                this),
+      std::bind(&S3PutObjectAction::next, this), null_object_oid,
+      null_versioned_object_metadata->get_layout_id(),
+      null_versioned_object_metadata->get_pvid());
+
+  s3_log(S3_LOG_DEBUG, "", "%s Exit", __func__);
+}
+
+void S3PutObjectAction::remove_null_versioned_object_metadata() {
+  s3_log(S3_LOG_INFO, stripped_request_id, "%s Entry\n", __func__);
+
+  null_versioned_object_metadata->remove_version_metadata(
+      std::bind(&S3PutObjectAction::remove_null_oid_probable_record, this),
+      std::bind(&S3PutObjectAction::next, this));
+  s3_log(S3_LOG_DEBUG, "", "%s Exit", __func__);
+}
+
+void S3PutObjectAction::remove_null_oid_probable_record() {
+  s3_log(S3_LOG_INFO, stripped_request_id, "%s Entry\n", __func__);
+  struct m0_uint128 old_null_object_oid =
+      null_versioned_object_metadata->get_old_oid();
+  std::string old_null_oid_str =
+      S3M0Uint128Helper::to_string(old_null_object_oid);
+  std::string null_oid_str = S3M0Uint128Helper::to_string(null_object_oid);
+  assert(!null_oid_str.empty());
+  assert(!old_null_oid_str.empty());
+
+  std::string null_oid_rec_key = old_null_oid_str + '-' + null_oid_str;
+
+  if (!motr_kv_writer) {
+    motr_kv_writer =
+        mote_kv_writer_factory->create_motr_kvs_writer(request, s3_motr_api);
+  }
+  motr_kv_writer->delete_keyval(global_probable_dead_object_list_index_layout,
+                                null_oid_rec_key,
+                                std::bind(&S3PutObjectAction::next, this),
+                                std::bind(&S3PutObjectAction::next, this));
+  s3_log(S3_LOG_DEBUG, "", "%s Exit", __func__);
+}
+
+void S3PutObjectAction::fetch_and_delete_null_versioned_object_failed() {
+  s3_log(S3_LOG_DEBUG, request_id, "%s Entry\n", __func__);
+  s3_log(S3_LOG_ERROR, request_id, "%s Entry\n", __func__);
+  next();
+  return;
 }
