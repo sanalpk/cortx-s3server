@@ -50,7 +50,7 @@ void S3HeadObjectAction::validate_object_info() {
   s3_log(S3_LOG_INFO, stripped_request_id, "%s Entry\n", __func__);
   if (object_metadata->is_delete_marker()) {
     s3_log(S3_LOG_DEBUG, request_id, "Object is a delete marker.");
-   
+
     request->set_out_header_value("x-amz-delete-marker", "true");
     request->set_out_header_value("x-amz-version-id",
                                   object_metadata->get_obj_version_id());

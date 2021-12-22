@@ -295,8 +295,9 @@ TEST_F(S3HeadObjectActionTest, SendSuccessResponseWhenVerEnabled) {
 }
 
 TEST_F(S3HeadObjectActionTest, validateObjInfoWithDelMarker) {
-  CREATE_OBJECT_METADATA; 
-  action_under_test->object_metadata = object_meta_factory->mock_object_metadata;
+  CREATE_OBJECT_METADATA;
+  action_under_test->object_metadata =
+      object_meta_factory->mock_object_metadata;
   EXPECT_CALL(*(object_meta_factory->mock_object_metadata), is_delete_marker())
       .WillOnce(Return(true));
   EXPECT_CALL(*(mock_request), has_query_param_key("versionId"))
@@ -307,7 +308,8 @@ TEST_F(S3HeadObjectActionTest, validateObjInfoWithDelMarker) {
 
 TEST_F(S3HeadObjectActionTest, validateObjInfoWithOutDelMarker) {
   CREATE_OBJECT_METADATA;
-  action_under_test->object_metadata = object_meta_factory->mock_object_metadata;
+  action_under_test->object_metadata =
+      object_meta_factory->mock_object_metadata;
   EXPECT_CALL(*(object_meta_factory->mock_object_metadata), is_delete_marker())
       .WillOnce(Return(false));
   action_under_test->validate_object_info();
